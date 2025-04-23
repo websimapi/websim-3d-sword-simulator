@@ -140,6 +140,33 @@
       z-index: 3;
       transition: transform 0.1s ease;
     }
+    
+    /* Add styling for the calibrate button */
+    #calibrate-button {
+      background-color: #ff9800;
+      margin-top: 15px;
+      font-weight: bold;
+    }
+    
+    /* Add calibration indicator */
+    .calibration-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 152, 0, 0.3);
+      z-index: 9;
+      display: none;
+      pointer-events: none;
+      animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { opacity: 0.3; }
+      50% { opacity: 0.5; }
+      100% { opacity: 0.3; }
+    }
   </style>
 </head>
 <body>
@@ -164,8 +191,10 @@
   <div id="mobile-controls" style="display: none;">
     <button id="thrust-button">Thrust</button>
     <button id="special-attack">Special Attack</button>
+    <button id="calibrate-button">Calibrate Sword Position</button>
   </div>
   
+  <div class="calibration-overlay" id="calibration-overlay"></div>
   <div id="touch-area" style="display: none;"></div>
   <div class="sword-feedback" id="sword-feedback" style="display: none;"></div>
   <div class="debug-data" id="debug-data" style="display: none;"></div>
@@ -203,6 +232,13 @@
     let swingCooldown = 300; // ms
     let lastTouch = null;
     let debugMode = true; // Set to false in production
+    
+    // Add calibration variables
+    let referenceOrientation = { alpha: 0, beta: 0, gamma: 0 };
+    let isCalibrated = false;
+    let motionVibrationThreshold = 8; // Lower threshold for more responsive vibration
+    let lastMotionVibrationTime = 0;
+    let motionVibrationCooldown = 300; // ms
     
     // Check if device is mobile
     function detectDevice() {
@@ -515,6 +551,56 @@
         sendSwordAction('special');
         navigator.vibrate([50, 30, 50, 30, 50, 30, 150]); // Enhanced vibration pattern
       });
+      
+      // Add calibration button handler
+      document.getElementById('calibrate-button').addEventListener('click', calibrateOrientation);
+    }
+    
+    // New function to calibrate orientation
+    function calibrateOrientation() {
+      // Visual feedback for calibration
+      const overlay = document.getElementById('calibration-overlay');
+      overlay.style.display = 'block';
+      
+      // Vibrate to indicate calibration started
+      navigator.vibrate([50, 50, 150]);
+      
+      // Display calibration status
+      document.getElementById('status').textContent = 'Calibrating... Please hold still';
+      
+      // Wait a moment before capturing reference orientation (allow user to stabilize)
+      setTimeout(() => {
+        // Get current orientation from presence 
+        const currentOrientation = room.presence[room.clientId]?.orientation || { alpha: 0, beta: 0, gamma: 0 };
+        
+        // Store as reference for calibration
+        referenceOrientation = { 
+          alpha: currentOrientation.alpha || 0, 
+          beta: currentOrientation.beta || 0, 
+          gamma: currentOrientation.gamma || 0 
+        };
+        
+        isCalibrated = true;
+        
+        // Vibrate to indicate calibration is complete
+        navigator.vibrate([150, 50, 50]);
+        
+        // Display success message
+        document.getElementById('status').textContent = 'Calibration complete!';
+        
+        if (debugMode) {
+          updateDebugInfo('calibration', {
+            reference: referenceOrientation,
+            time: new Date().toLocaleTimeString()
+          });
+        }
+        
+        // Hide overlay after a moment
+        setTimeout(() => {
+          overlay.style.display = 'none';
+          document.getElementById('status').textContent = `Connected as: ${currentUser.username} (Mobile${sameUserConnected ? ' - Controlling Desktop' : ' - Waiting for desktop'})`;
+        }, 1000);
+      }, 500);
     }
     
     // Request motion and orientation permissions for iOS
@@ -617,18 +703,29 @@
         absolute: event.absolute || false
       };
       
+      // Apply calibration if enabled
+      const calibratedOrientation = isCalibrated ? {
+        alpha: (orientation.alpha - referenceOrientation.alpha + 360) % 360, // Ensure alpha wraps correctly
+        beta: orientation.beta - referenceOrientation.beta,
+        gamma: orientation.gamma - referenceOrientation.gamma,
+        absolute: orientation.absolute
+      } : orientation;
+      
       // Update our presence with the new orientation
       room.updatePresence({
-        orientation: orientation,
+        orientation: calibratedOrientation,
+        originalOrientation: orientation, // Keep original for debugging
+        isCalibrated: isCalibrated,
         timestamp: Date.now()
       });
       
       // Update visual feedback on mobile
-      updateMobileSwordFeedback(orientation);
+      updateMobileSwordFeedback(calibratedOrientation);
       
       // Update debug info
       if (debugMode) {
-        updateDebugInfo('orientation', orientation);
+        updateDebugInfo('orientation', calibratedOrientation);
+        updateDebugInfo('originalOrientation', orientation);
         
         // Check if data is actually changing
         const lastData = JSON.stringify(orientation);
@@ -676,6 +773,35 @@
       // Check if we need to vibrate and send events based on acceleration
       if (sameUserConnected) {
         detectSwing(acceleration);
+        
+        // Add vibration for general motion
+        detectMotionForVibration(acceleration);
+      }
+    }
+    
+    // New function to detect any significant motion and provide haptic feedback
+    function detectMotionForVibration(acceleration) {
+      const now = Date.now();
+      
+      // Calculate total acceleration magnitude
+      const totalAcceleration = Math.sqrt(
+        Math.pow(acceleration.x || 0, 2) + 
+        Math.pow(acceleration.y || 0, 2) + 
+        Math.pow(acceleration.z || 0, 2)
+      );
+      
+      // If significant motion detected and not in cooldown period
+      if (totalAcceleration > motionVibrationThreshold && now - lastMotionVibrationTime > motionVibrationCooldown) {
+        // Subtle vibration for motion feedback
+        navigator.vibrate(Math.min(Math.floor(totalAcceleration * 3), 50));
+        lastMotionVibrationTime = now;
+        
+        if (debugMode) {
+          updateDebugInfo('motionVibration', {
+            acceleration: totalAcceleration,
+            time: new Date(now).toLocaleTimeString()
+          });
+        }
       }
     }
     
@@ -826,10 +952,7 @@
             } else {
               navigator.vibrate([50, 20, 50]);
             }
-            
-            // Reset the start position for continuous swipes
-            touchStartPos = currentPos;
-            touchStartTime = now;
+            lastVibrationTime = now;
             
             if (debugMode) {
               updateDebugInfo('swipeEvent', {
@@ -988,7 +1111,7 @@
             const progress = Math.min(elapsed / duration, 1);
             
             if (progress < 1) {
-              // Apply a sine wave motion for the swing with improved dynamics
+              // Using sine wave for smooth swing effect
               const swingProgress = Math.sin(progress * Math.PI);
               
               // Apply rotation based on acceleration direction
