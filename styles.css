@@ -1,0 +1,162 @@
+body, html {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  font-family: Arial, sans-serif;
+  background-color: #121212;
+  color: white;
+}
+
+#scene-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+#loading p {
+  margin-top: 20px;
+  font-size: 18px;
+}
+
+#status {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.7);
+  border-radius: 5px;
+  z-index: 5;
+}
+
+#controls {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.7);
+  border-radius: 5px;
+  z-index: 5;
+}
+
+button {
+  background-color: #4CAF50;
+  border: none;
+  color: white;
+  padding: 10px 15px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 16px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+#mobile-instructions {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  padding: 20px;
+  background-color: rgba(0, 0, 0, 0.8);
+  border-radius: 10px;
+  z-index: 5;
+}
+
+#mobile-controls {
+  position: fixed;
+  bottom: 20px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  z-index: 5;
+}
+
+#mobile-controls button {
+  margin: 5px;
+  padding: 15px 25px;
+  font-size: 18px;
+}
+
+.debug-data {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  padding: 10px;
+  background-color: rgba(0, 0, 0, 0.7);
+  border-radius: 5px;
+  font-size: 12px;
+  max-width: 200px;
+  max-height: 150px;
+  overflow: auto;
+  z-index: 5;
+}
+
+#touch-area {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 70%;
+  z-index: 4;
+}
+
+.sword-feedback {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(0deg);
+  width: 120px;
+  height: 240px;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  z-index: 3;
+  transition: transform 0.1s ease;
+}
+
+/* Calibrate button styling */
+#calibrate-button {
+  background-color: #ff9800;
+  margin-top: 15px;
+  font-weight: bold;
+}
+
+/* Calibration indicator */
+.calibration-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 152, 0, 0.3);
+  z-index: 9;
+  display: none;
+  pointer-events: none;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.3; }
+  50% { opacity: 0.5; }
+  100% { opacity: 0.3; }
+}
