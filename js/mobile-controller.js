@@ -289,7 +289,7 @@ function detectMotionForVibration(acceleration) {
     Math.pow(acceleration.x || 0, 2) + 
     Math.pow(acceleration.y || 0, 2) + 
     Math.pow(acceleration.z || 0, 2)
-  ;
+  );
   
   // If significant motion detected and not in cooldown period
   if (totalAcceleration > motionVibrationThreshold && now - lastMotionVibrationTime > motionVibrationCooldown) {
@@ -313,7 +313,7 @@ function detectSwing(acceleration) {
     Math.pow(acceleration.x || 0, 2) + 
     Math.pow(acceleration.y || 0, 2) + 
     Math.pow(acceleration.z || 0, 2)
-  ;
+  );
   
   const now = Date.now();
   
