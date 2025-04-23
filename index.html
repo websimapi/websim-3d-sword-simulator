@@ -482,12 +482,18 @@
     
     // Setup mobile controller
     function setupMobileController() {
-      // Request permissions for device motion and orientation on iOS
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
+      // Add clear status message about permissions
+      document.getElementById('status').textContent = 'Waiting for motion and orientation permissions...';
+      
+      // Request permissions for device motion and orientation
+      if (typeof DeviceMotionEvent.requestPermission === 'function' || 
+          typeof DeviceOrientationEvent.requestPermission === 'function') {
         // iOS 13+ requires permission request
-        document.getElementById('mobile-instructions').innerHTML += '<p>Tap "Allow" when prompted for motion and orientation access.</p>';
+        document.getElementById('mobile-instructions').innerHTML += 
+          '<p>Tap "Allow" when prompted for motion and orientation access.</p>' +
+          '<button id="request-permissions" style="background-color: #ff5722; padding: 15px; margin-top: 10px;">Enable Motion Controls</button>';
         
-        document.body.addEventListener('click', requestMotionPermission, { once: true });
+        document.getElementById('request-permissions').addEventListener('click', requestMotionPermission);
       } else {
         // Non-iOS devices or older iOS versions
         enableMotionAndOrientation();
@@ -502,61 +508,100 @@
       // Set up mobile button handlers
       document.getElementById('thrust-button').addEventListener('click', () => {
         sendSwordAction('thrust');
-        navigator.vibrate([50, 30, 50]);
+        navigator.vibrate([100, 30, 100]); // Enhanced vibration pattern
       });
       
       document.getElementById('special-attack').addEventListener('click', () => {
         sendSwordAction('special');
-        navigator.vibrate([50, 30, 50, 30, 50, 30, 100]);
+        navigator.vibrate([50, 30, 50, 30, 50, 30, 150]); // Enhanced vibration pattern
       });
     }
     
     // Request motion and orientation permissions for iOS
     async function requestMotionPermission() {
       try {
+        document.getElementById('status').textContent = 'Requesting motion and orientation permissions...';
+        
+        // Request device motion permission (iOS 13+)
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
           const motionPermission = await DeviceMotionEvent.requestPermission();
           if (motionPermission === 'granted') {
             motionPermissionGranted = true;
+            document.getElementById('status').textContent = 'Motion permission granted!';
           } else {
             document.getElementById('status').textContent = 'Motion permission denied!';
             return;
           }
+        } else {
+          motionPermissionGranted = true;
         }
         
+        // Request device orientation permission (iOS 13+)
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
           const orientationPermission = await DeviceOrientationEvent.requestPermission();
           if (orientationPermission === 'granted') {
             orientationPermissionGranted = true;
+            document.getElementById('status').textContent = 'Orientation permission granted!';
           } else {
             document.getElementById('status').textContent = 'Orientation permission denied!';
             return;
           }
+        } else {
+          orientationPermissionGranted = true;
         }
+        
+        // Hide the permission button if it exists
+        const permButton = document.getElementById('request-permissions');
+        if (permButton) permButton.style.display = 'none';
         
         enableMotionAndOrientation();
       } catch (error) {
         console.error('Error requesting motion/orientation permission:', error);
-        document.getElementById('status').textContent = 'Error requesting permissions!';
+        document.getElementById('status').textContent = 'Error requesting permissions: ' + error.message;
       }
     }
     
     // Enable motion and orientation events after permissions
     function enableMotionAndOrientation() {
+      document.getElementById('status').textContent = 'Setting up motion and orientation...';
+      
       // Check if device orientation API is available
       if (window.DeviceOrientationEvent) {
-        window.addEventListener('deviceorientation', handleOrientation);
-        document.getElementById('status').textContent = `Connected as: ${currentUser.username} (Mobile - Orientation Ready)`;
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        document.getElementById('status').textContent = 'Orientation tracking enabled!';
       } else {
         document.getElementById('status').textContent = 'Device orientation not supported!';
       }
       
       // Check if device motion API is available
       if (window.DeviceMotionEvent) {
-        window.addEventListener('devicemotion', handleMotion);
-        document.getElementById('status').textContent = `Connected as: ${currentUser.username} (Mobile - Motion Ready)`;
+        window.addEventListener('devicemotion', handleMotion, true);
+        document.getElementById('status').textContent = 'Motion tracking enabled!';
       } else {
         document.getElementById('status').textContent = 'Device motion not supported!';
+      }
+      
+      // Send immediate test data to confirm connection
+      sendTestOrientation();
+    }
+    
+    // Send test orientation data to verify the connection is working
+    function sendTestOrientation() {
+      room.updatePresence({
+        orientation: {
+          alpha: 0,
+          beta: 0,
+          gamma: 0
+        },
+        testMessage: "Orientation data initialized"
+      });
+      
+      // Log to console for debugging
+      console.log("Test orientation data sent");
+      
+      // Update debug display
+      if (debugMode) {
+        updateDebugInfo('status', {message: 'Test orientation data sent'});
       }
     }
     
@@ -564,15 +609,18 @@
     function handleOrientation(event) {
       if (!isMobile) return;
       
+      // Get orientation data with fallbacks
       const orientation = {
-        alpha: event.alpha || 0, // Z-axis rotation [0-360)
-        beta: event.beta || 0,   // X-axis rotation [-180, 180]
-        gamma: event.gamma || 0  // Y-axis rotation [-90, 90]
+        alpha: event.alpha || 0,      // Z-axis rotation [0-360)
+        beta: event.beta || 0,        // X-axis rotation [-180, 180]
+        gamma: event.gamma || 0,      // Y-axis rotation [-90, 90]
+        absolute: event.absolute || false
       };
       
       // Update our presence with the new orientation
       room.updatePresence({
-        orientation: orientation
+        orientation: orientation,
+        timestamp: Date.now()
       });
       
       // Update visual feedback on mobile
@@ -581,28 +629,42 @@
       // Update debug info
       if (debugMode) {
         updateDebugInfo('orientation', orientation);
+        
+        // Check if data is actually changing
+        const lastData = JSON.stringify(orientation);
+        const isChanging = lastData !== JSON.stringify(lastOrientation || {});
+        updateDebugInfo('orientationStatus', {isChanging: isChanging});
+        lastOrientation = JSON.parse(lastData);
       }
     }
+    
+    // Track last orientation for change detection
+    let lastOrientation = null;
     
     // Handle device motion/acceleration data
     function handleMotion(event) {
       if (!isMobile) return;
       
-      const acceleration = event.acceleration || { x: 0, y: 0, z: 0 };
+      // Get acceleration data with fallbacks
+      const rawAcceleration = event.acceleration || event.accelerationIncludingGravity || { x: 0, y: 0, z: 0 };
+      const acceleration = {
+        x: rawAcceleration.x || 0,
+        y: rawAcceleration.y || 0,
+        z: rawAcceleration.z || 0
+      };
+      
+      // Get rotation rate with fallbacks
       const rotationRate = event.rotationRate || { alpha: 0, beta: 0, gamma: 0 };
       
-      // Update our presence with the new acceleration
+      // Update our presence with the new data
       room.updatePresence({
-        acceleration: {
-          x: acceleration.x || 0,
-          y: acceleration.y || 0,
-          z: acceleration.z || 0
-        },
+        acceleration: acceleration,
         rotationRate: {
           alpha: rotationRate.alpha || 0,
           beta: rotationRate.beta || 0,
           gamma: rotationRate.gamma || 0
-        }
+        },
+        timestamp: Date.now()
       });
       
       // Update debug info
@@ -611,7 +673,7 @@
         updateDebugInfo('rotationRate', rotationRate);
       }
       
-      // Check if we need to vibrate based on acceleration
+      // Check if we need to vibrate and send events based on acceleration
       if (sameUserConnected) {
         detectSwing(acceleration);
       }
@@ -619,6 +681,7 @@
     
     // Detect swing motion from acceleration data
     function detectSwing(acceleration) {
+      // Calculate total acceleration magnitude
       const totalAcceleration = Math.sqrt(
         Math.pow(acceleration.x || 0, 2) + 
         Math.pow(acceleration.y || 0, 2) + 
@@ -626,6 +689,8 @@
       );
       
       const now = Date.now();
+      
+      // Check if acceleration exceeds threshold and we're not in cooldown
       if (totalAcceleration > accelerationThreshold && now - lastSwingTime > swingCooldown) {
         lastSwingTime = now;
         
@@ -655,11 +720,19 @@
         
         // Vibrate based on the strength of the swing
         if (totalAcceleration > accelerationThreshold * 2) {
-          navigator.vibrate([100, 50, 100, 50, 100]); // Strong swing
+          navigator.vibrate([100, 50, 100, 50, 150]); // Strong swing
         } else {
-          navigator.vibrate([100]); // Normal swing
+          navigator.vibrate([80, 40, 80]); // Normal swing
         }
         lastVibrationTime = now;
+        
+        if (debugMode) {
+          updateDebugInfo('swingEvent', {
+            force: totalAcceleration,
+            direction: direction,
+            time: new Date(now).toLocaleTimeString()
+          });
+        }
       }
       
       // Reset the swipe gesture after a short delay
@@ -672,12 +745,21 @@
         });
       }, 200);
       
+      // Get orientation data from presence
+      const orientation = room.presence[room.clientId]?.orientation;
+      
       // Vibrate when sword is raised up (beta angle close to -90)
-      const orientation = room.presence[room.clientId].orientation;
       if (orientation && orientation.beta < -70 && now - lastVibrationTime > vibrationCooldown) {
         sendSwordAction('raise');
-        navigator.vibrate([50, 50, 50, 50, 100, 100]);
+        navigator.vibrate([50, 30, 50, 30, 100]);
         lastVibrationTime = now;
+        
+        if (debugMode) {
+          updateDebugInfo('raiseEvent', {
+            beta: orientation.beta,
+            time: new Date(now).toLocaleTimeString()
+          });
+        }
       }
     }
     
@@ -742,12 +824,20 @@
             if (speed > 1.5) {
               navigator.vibrate([100, 50, 100]);
             } else {
-              navigator.vibrate([50]);
+              navigator.vibrate([50, 20, 50]);
             }
             
             // Reset the start position for continuous swipes
             touchStartPos = currentPos;
             touchStartTime = now;
+            
+            if (debugMode) {
+              updateDebugInfo('swipeEvent', {
+                direction: direction,
+                speed: speed,
+                time: new Date(now).toLocaleTimeString()
+              });
+            }
           }
         }
       }
@@ -804,29 +894,43 @@
     
     // Update sword orientation based on mobile device orientation
     function updateSwordOrientation(orientation) {
-      if (!swordGroup) return;
+      if (!swordGroup || !orientation) return;
       
-      // Reset the rotation
+      // Reset the rotation to avoid accumulation
       swordGroup.rotation.set(0, 0, 0);
       
       // Convert degrees to radians
-      const alphaRad = THREE.MathUtils.degToRad(orientation.alpha);
-      const betaRad = THREE.MathUtils.degToRad(orientation.beta);
-      const gammaRad = THREE.MathUtils.degToRad(orientation.gamma);
+      const alphaRad = THREE.MathUtils.degToRad(orientation.alpha || 0);
+      const betaRad = THREE.MathUtils.degToRad(orientation.beta || 0);
+      const gammaRad = THREE.MathUtils.degToRad(orientation.gamma || 0);
       
-      // Apply the rotation
-      // We need to adjust the mapping based on how we want the sword to move
-      swordGroup.rotation.z = gammaRad; // Tilt left/right
-      swordGroup.rotation.x = betaRad / 2; // Tilt forward/backward
-      swordGroup.rotation.y = -alphaRad / 2; // Rotation around vertical axis
+      // Apply the rotation - improved mapping for more intuitive control
+      swordGroup.rotation.z = gammaRad; // Tilt left/right (roll)
+      swordGroup.rotation.x = betaRad * 0.6; // Tilt forward/backward (pitch)
+      swordGroup.rotation.y = -alphaRad * 0.4; // Rotation around vertical axis (yaw)
+      
+      // Log orientation updates if in debug mode
+      if (debugMode && isDesktop) {
+        console.log('Updating sword orientation:', orientation);
+      }
     }
     
     // Update visual feedback on mobile device
     function updateMobileSwordFeedback(orientation) {
       const swordFeedback = document.getElementById('sword-feedback');
-      if (swordFeedback) {
-        // Apply rotation based on orientation
-        swordFeedback.style.transform = `translate(-50%, -50%) rotate(${orientation.gamma}deg)`;
+      if (swordFeedback && orientation) {
+        // Apply rotation based on orientation with better visual feedback
+        const tiltX = orientation.beta * 0.6; // Pitch
+        const tiltY = orientation.gamma; // Roll
+        
+        swordFeedback.style.transform = `translate(-50%, -50%) 
+          rotate(${tiltY}deg) 
+          perspective(500px) 
+          rotateX(${-tiltX}deg)`;
+          
+        // Add color indication based on orientation intensity
+        const intensity = Math.min(100, Math.abs(tiltX) + Math.abs(tiltY));
+        swordFeedback.style.backgroundColor = `rgba(255, ${255 - intensity * 2}, ${255 - intensity * 2}, 0.3)`;
       }
     }
     
@@ -863,13 +967,18 @@
         if (swordGroup) {
           // Add a slight rotation or movement to simulate swinging
           const swingDirection = Math.sign(acceleration.x) || 1;
-          const tween = { value: 0 };
           
-          // Animate the swing
-          const startRotation = { x: swordGroup.rotation.x, y: swordGroup.rotation.y, z: swordGroup.rotation.z };
-          const swingAmount = totalAcceleration / 30; // Scale based on acceleration
+          // Get the current rotation as a starting point
+          const startRotation = { 
+            x: swordGroup.rotation.x, 
+            y: swordGroup.rotation.y, 
+            z: swordGroup.rotation.z 
+          };
           
-          // Simple animation using regular JS as we don't have a tweening library
+          // Calculate swing amount based on acceleration
+          const swingAmount = totalAcceleration / 25; // Adjusted for more responsive movement
+          
+          // Animation timing
           let startTime = null;
           const duration = 300; // ms
           
@@ -879,9 +988,18 @@
             const progress = Math.min(elapsed / duration, 1);
             
             if (progress < 1) {
-              // Apply a sine wave motion for the swing
+              // Apply a sine wave motion for the swing with improved dynamics
               const swingProgress = Math.sin(progress * Math.PI);
-              swordGroup.rotation.z = startRotation.z + swingDirection * swingAmount * swingProgress;
+              
+              // Apply rotation based on acceleration direction
+              if (Math.abs(acceleration.x) > Math.abs(acceleration.y)) {
+                // Horizontal swing (z-axis rotation)
+                swordGroup.rotation.z = startRotation.z + swingDirection * swingAmount * swingProgress;
+              } else {
+                // Vertical swing (x-axis rotation)
+                const verticalDirection = Math.sign(acceleration.y) || 1;
+                swordGroup.rotation.x = startRotation.x + verticalDirection * swingAmount * swingProgress;
+              }
               
               requestAnimationFrame(animateSwing);
             } else {
@@ -905,8 +1023,17 @@
         type: "sword_action",
         action: action,
         params: params,
-        echo: false
+        echo: false,
+        timestamp: Date.now()
       });
+      
+      if (debugMode) {
+        updateDebugInfo('sentAction', {
+          action: action,
+          params: JSON.stringify(params).substring(0, 30),
+          time: new Date().toLocaleTimeString()
+        });
+      }
     }
     
     // Perform a sword action on the desktop
@@ -1156,15 +1283,24 @@
         section.className = `${type}-debug`;
         section.innerHTML = `<strong>${type}:</strong> <span></span>`;
         debugElement.appendChild(section);
+        
+        // Keep only the most recent debug sections
+        if (debugElement.children.length > 8) {
+          debugElement.removeChild(debugElement.children[0]);
+        }
       }
       
       // Update the section content
       const section = debugElement.querySelector(`.${type}-debug span`);
       if (section) {
-        section.textContent = JSON.stringify(data, null, 2)
-          .replace(/[{}"]/g, '')
-          .replace(/,/g, ', ')
-          .substring(0, 100); // Truncate if too long
+        if (typeof data === 'object') {
+          section.textContent = JSON.stringify(data, null, 2)
+            .replace(/[{}"]/g, '')
+            .replace(/,/g, ', ')
+            .substring(0, 100); // Truncate if too long
+        } else {
+          section.textContent = String(data);
+        }
       }
     }
     
